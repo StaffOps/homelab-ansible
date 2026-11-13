@@ -1,0 +1,47 @@
+---
+# ---- base ----
+timezone: America/Fortaleza
+base_packages:
+  - curl
+  - wget
+  - vim
+  - htop
+  - git
+  - jq
+  - unzip
+  - ca-certificates
+  - gnupg
+  - net-tools
+  - dnsutils
+  - chrony
+# Reboot automatically when /var/run/reboot-required exists after upgrades
+base_reboot_if_required: true
+
+# ---- hardening ----
+admin_user: karlipegomes
+# Public key installed in admin_user's authorized_keys (your default key)
+admin_pubkey_file: ~/.ssh/id_rsa.pub
+ssh_port: 22
+ssh_allow_users: ["{{ admin_user }}"]
+# Networks allowed to reach SSH / k3s API / ingress. Adjust to your LAN.
+trusted_cidrs:
+  - 192.168.68.0/24
+fail2ban_bantime: 1h
+fail2ban_maxretry: 5
+
+# ---- motd ----
+motd_title: "HOMELAB"
+motd_environment: "homelab"
+
+# ---- k3s ----
+# Empty = latest from the channel below. Pin for reproducibility, e.g. "v1.33.5+k3s1"
+k3s_version: ""
+k3s_channel: stable
+k3s_cluster_cidr: 10.42.0.0/16
+k3s_service_cidr: 10.43.0.0/16
+# Packaged components disabled - homelab-gitops brings its own (see homelab-gitops/host/k3s-config.yaml):
+#   traefik   -> Istio Gateway owns 80/443
+#   servicelb -> MetalLB assigns LoadBalancer IPs from the LAN pool
+k3s_disable: [traefik, servicelb]
+# Where to save the kubeconfig on your Mac (relative to the playbook dir)
+k3s_local_kubeconfig: "{{ playbook_dir }}/kubeconfig"

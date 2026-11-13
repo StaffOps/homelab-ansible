@@ -1,0 +1,6 @@
+# Pinned for ansible-core 2.12 (installed locally). Bump when ansible-core is upgraded.
+collections:
+  - name: community.general
+    version: ">=6.0.0,<7.0.0"
+  - name: ansible.posix
+    version: "1.5.4"

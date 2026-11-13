@@ -1,0 +1,139 @@
+---
+# ---------- Access safety: key must be in place before passwords are disabled ----------
+- name: Install admin public key
+  ansible.posix.authorized_key:
+    user: "{{ admin_user }}"
+    key: "{{ lookup('file', admin_pubkey_file) }}"
+    state: present
+
+- name: Verify key-only login works before disabling passwords (avoid lock-out)
+  ansible.builtin.command: >-
+    ssh -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=10
+    -o StrictHostKeyChecking=accept-new -p {{ ssh_port }}
+    -i {{ ansible_ssh_private_key_file }} {{ admin_user }}@{{ ansible_host }} true
+  delegate_to: localhost
+  become: false
+  changed_when: false
+  check_mode: false   # read-only probe: must also run during --check
+
+# ---------- Packages ----------
+- name: Install security packages
+  ansible.builtin.apt:
+    name: [ufw, fail2ban, python3-systemd, auditd, apparmor, apparmor-utils]
+    state: present
+
+- name: Remove insecure / unneeded packages
+  ansible.builtin.apt:
+    name: [telnet, rsh-client, talk, nis]
+    state: absent
+
+# ---------- SSH ----------
+- name: Ensure sshd privilege separation dir exists (needed for sshd -t with socket activation)
+  ansible.builtin.file:
+    path: /run/sshd
+    state: directory
+    mode: "0755"
+
+- name: SSH hardening drop-in (00- prefix wins over cloud-init's 50-)
+  ansible.builtin.template:
+    src: sshd-hardening.conf.j2
+    dest: /etc/ssh/sshd_config.d/00-hardening.conf
+    mode: "0644"
+    validate: /usr/sbin/sshd -t -f %s
+  notify: Restart ssh
+
+- name: Validate full sshd config
+  ansible.builtin.command: /usr/sbin/sshd -t
+  changed_when: false
+  check_mode: false   # read-only, safe to run during --check
+
+# ---------- Firewall ----------
+- name: UFW - allow forwarded traffic (required by k3s pod networking)
+  ansible.builtin.lineinfile:
+    path: /etc/default/ufw
+    regexp: '^DEFAULT_FORWARD_POLICY='
+    line: 'DEFAULT_FORWARD_POLICY="ACCEPT"'
+  notify: Reload ufw
+
+- name: UFW - allow SSH from trusted networks (rate limited)
+  community.general.ufw:
+    rule: limit
+    port: "{{ ssh_port | string }}"
+    proto: tcp
+    src: "{{ item }}"
+    comment: ssh
+  loop: "{{ trusted_cidrs }}"
+
+- name: UFW - default deny incoming, allow outgoing, enable
+  community.general.ufw:
+    state: enabled
+    direction: "{{ item.direction }}"
+    policy: "{{ item.policy }}"
+    logging: low
+  loop:
+    - { direction: incoming, policy: deny }
+    - { direction: outgoing, policy: allow }
+
+# ---------- fail2ban ----------
+- name: fail2ban sshd jail
+  ignore_errors: "{{ ansible_check_mode }}"   # /etc/fail2ban missing during --check
+  ansible.builtin.copy:
+    dest: /etc/fail2ban/jail.local
+    mode: "0644"
+    content: |
+      [DEFAULT]
+      bantime  = {{ fail2ban_bantime }}
+      findtime = 10m
+      maxretry = {{ fail2ban_maxretry }}
+      backend  = systemd
+      ignoreip = 127.0.0.1/8 ::1 {{ trusted_cidrs | join(' ') }}
+
+      [sshd]
+      enabled = true
+      port    = {{ ssh_port }}
+  notify: Restart fail2ban
+
+- name: Enable security services
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+  loop: [fail2ban, auditd, apparmor]
+  ignore_errors: "{{ ansible_check_mode }}"   # not installed yet during --check
+
+# ---------- Kernel ----------
+- name: Kernel/network hardening sysctl
+  ansible.posix.sysctl:
+    name: "{{ item.key }}"
+    value: "{{ item.value }}"
+    sysctl_file: /etc/sysctl.d/90-hardening.conf
+    reload: true
+  loop: "{{ hardening_sysctl | dict2items }}"
+
+- name: Blacklist uncommon filesystems / protocols
+  ansible.builtin.copy:
+    dest: /etc/modprobe.d/hardening-blacklist.conf
+    mode: "0644"
+    content: |
+      {% for m in hardening_blacklist_modules %}
+      install {{ m }} /bin/false
+      blacklist {{ m }}
+      {% endfor %}
+
+- name: Disable core dumps
+  ansible.builtin.copy:
+    dest: /etc/security/limits.d/90-nocoredump.conf
+    mode: "0644"
+    content: "* hard core 0\n"
+
+# ---------- Accounts ----------
+- name: Lock root password
+  ansible.builtin.user:
+    name: root
+    password_lock: true
+
+- name: Restrict su to sudo group
+  ansible.builtin.lineinfile:
+    path: /etc/pam.d/su
+    regexp: '^#?\s*auth\s+required\s+pam_wheel.so'
+    line: "auth       required   pam_wheel.so group=sudo"
