@@ -1,0 +1,8 @@
+---
+# Static IPv4 (was DHCP from the LAN router). Also reserve 74:d4:35:09:7b:8b -> .104 on the router
+# so DHCP never hands this address to another device.
+net_interface: enp3s0
+net_macaddress: "74:d4:35:09:7b:8b"
+net_address: 192.168.68.104/24
+net_gateway: 192.168.68.1
+net_dns: [192.168.1.254, 4.2.2.2]   # same servers DHCP was providing

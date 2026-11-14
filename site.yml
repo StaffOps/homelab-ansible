@@ -8,6 +8,7 @@
         fail_msg: "Este playbook suporta apenas Ubuntu (encontrado: {{ ansible_distribution }})"
   roles:
     - { role: base, tags: [base, update] }
+    - { role: network, tags: [network] }
     - { role: hardening, tags: [hardening] }
     - { role: motd, tags: [motd] }
     - { role: kubernetes, tags: [kubernetes], when: "'kube_control_plane' in group_names" }

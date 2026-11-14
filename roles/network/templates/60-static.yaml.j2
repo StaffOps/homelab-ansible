@@ -1,0 +1,16 @@
+# {{ ansible_managed }}
+# Overrides cloud-init's 50-cloud-init.yaml (later files win when netplan merges).
+network:
+  version: 2
+  ethernets:
+    {{ net_interface }}:
+      match:
+        macaddress: "{{ net_macaddress }}"
+      set-name: {{ net_interface }}
+      dhcp4: false
+      addresses: [{{ net_address }}]
+      routes:
+        - to: default
+          via: {{ net_gateway }}
+      nameservers:
+        addresses: [{{ net_dns | join(', ') }}]
