@@ -53,6 +53,26 @@ apiServer:
       mountPath: /var/log/kubernetes/audit
       readOnly: false
       pathType: DirectoryOrCreate
+# Metrics for Prometheus (homelab-gitops). 0.0.0.0 is safe: UFW denies incoming except from the pod/service
+# CIDRs, SSH and 6443; controller-manager/scheduler metrics also require authn/authz.
+controllerManager:
+  extraArgs:
+    - name: bind-address
+      value: "0.0.0.0"
+scheduler:
+  extraArgs:
+    - name: bind-address
+      value: "0.0.0.0"
+etcd:
+  local:
+    extraArgs:
+      # keep 127.0.0.1: kubeadm's etcd probes use it; the node IP is for Prometheus (plain HTTP, no auth)
+      - name: listen-metrics-urls
+        value: "http://127.0.0.1:2381,http://{{ ansible_host }}:2381"
+---
+apiVersion: kubeproxy.config.k8s.io/v1alpha1
+kind: KubeProxyConfiguration
+metricsBindAddress: "{{ kube_proxy_metrics_bind }}"
 ---
 apiVersion: kubelet.config.k8s.io/v1beta1
 kind: KubeletConfiguration

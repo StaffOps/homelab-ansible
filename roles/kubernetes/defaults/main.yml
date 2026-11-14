@@ -11,6 +11,8 @@ kube_local_kubeconfig: "{{ playbook_dir }}/kubeconfig"
 kube_api_client_host: "{{ ansible_host }}"
 # Backup of the Secrets encryption key, OUTSIDE the repo (losing it = losing every Secret)
 kube_encryption_backup: "~/.config/homelab/{{ inventory_hostname }}-encryption-config.yaml"
+# kube-proxy metrics (plain HTTP): reachable only from pods, UFW blocks the LAN
+kube_proxy_metrics_bind: "0.0.0.0:10249"
 kube_audit_log_maxage: 7             # days
 kube_audit_log_maxbackup: 5          # files
 kube_audit_log_maxsize: 100          # MB per file
@@ -36,4 +38,6 @@ helm_version: v4.3.2
 # Calico via the Tigera operator Helm chart (Calico 3.33 is tested with Kubernetes 1.35-1.37)
 calico_version: v3.33.0             # v3.33.1 is in the chart index but its .tgz is 404 on GitHub
 calico_map_api_version: v1            # MutatingAdmissionPolicy API: v1 for K8s >= 1.36, v1beta1 for 1.34/1.35
+calico_felix_metrics_port: 9091
+calico_typha_metrics_port: 9093
 calico_encapsulation: VXLAN          # single node: no inter-node traffic; VXLAN avoids BGP

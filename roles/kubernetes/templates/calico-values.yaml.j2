@@ -3,6 +3,10 @@
 installation:
   cni:
     type: Calico
+  # Prometheus metrics (homelab-gitops scrapes them): Felix on every node, Typha via Service
+  # calico-system/calico-typha-metrics. kube-controllers already serves 9094 by default.
+  nodeMetricsPort: {{ calico_felix_metrics_port }}
+  typhaMetricsPort: {{ calico_typha_metrics_port }}
   calicoNetwork:
     bgp: Disabled
     # Pin node IP detection to the Kubernetes InternalIP (first-found could pick tailscale0 / 100.x)
@@ -14,3 +18,7 @@ installation:
         encapsulation: {{ calico_encapsulation }}
         natOutgoing: Enabled
         nodeSelector: all()
+tigeraOperator:
+  env:
+    - name: METRICS_ENABLED       # operator metrics on 0.0.0.0:9484
+      value: "true"

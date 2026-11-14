@@ -197,6 +197,7 @@
     src: kubeadm-config.yaml.j2
     dest: /etc/kubernetes/kubeadm-config.yaml
     mode: "0600"
+  register: _kubeadm_cfg
 
 - name: kubeadm patches directory
   ansible.builtin.file:
@@ -227,22 +228,45 @@
   changed_when: false
 
 # ---------- day-2: static pod manifests (kubeadm only writes them at init/upgrade) ----------
-# Rewrites only the manifest whose patch changed; the kubelet then restarts that pod (API blip of ~30-60 s).
-- name: Regenerate static pod manifests whose resource patch changed
+# A change in kubeadm-config.yaml rewrites every control-plane manifest; otherwise only the one whose resource
+# patch changed. The kubelet then restarts that pod (etcd/apiserver: API down for ~30-60 s).
+- name: Static pods to regenerate
+  ansible.builtin.set_fact:
+    _cp_regen_list: >-
+      {{ [] if _kubeadm_init is changed
+         else (['etcd', 'kube-apiserver', 'kube-controller-manager', 'kube-scheduler'] if _kubeadm_cfg is changed
+         else (_cp_patches.results | select('changed') | map(attribute='item.key') | list)) }}
+
+- name: Back up static pod manifests (outside the kubelet's manifest dir)
+  ansible.builtin.shell: cp -a /etc/kubernetes/manifests /etc/kubernetes/manifests-bak-$(date +%Y%m%d%H%M%S)
+  when: _cp_regen_list | length > 0
+
+- name: Regenerate static pod manifests
   ansible.builtin.command: >-
     kubeadm init phase
-    {{ 'etcd local' if item.item.key == 'etcd' else 'control-plane ' ~ (item.item.key | replace('kube-', '')) }}
+    {{ 'etcd local' if item == 'etcd' else 'control-plane ' ~ (item | replace('kube-', '')) }}
     --config /etc/kubernetes/kubeadm-config.yaml
-  loop: "{{ _cp_patches.results }}"
-  loop_control:
-    label: "{{ item.item.key }}"
-  when: item is changed and _kubeadm_init is not changed
+  loop: "{{ _cp_regen_list }}"
   register: _cp_regen
 
 - name: Give the kubelet time to restart the regenerated static pods
   ansible.builtin.pause:
     seconds: 45
   when: _cp_regen is changed
+
+- name: Wait for kube-apiserver (after static pod changes)
+  ansible.builtin.command: kubectl --kubeconfig /etc/kubernetes/admin.conf get --raw /readyz
+  register: _readyz_cp
+  until: _readyz_cp.rc == 0
+  retries: 30
+  delay: 5
+  changed_when: false
+  when: _cp_regen is changed
+
+# Store the ClusterConfiguration in the cluster (kubeadm-config ConfigMap) so "kubeadm upgrade" keeps it
+- name: Upload kubeadm ClusterConfiguration
+  ansible.builtin.command: kubeadm init phase upload-config kubeadm --config /etc/kubernetes/kubeadm-config.yaml
+  when: _kubeadm_cfg is changed and _kubeadm_init is not changed
 
 # ---------- day-2: apiserver SANs (kubeadm only sets them at init) ----------
 - name: Current apiserver certificate SANs
@@ -278,6 +302,26 @@
     [{'name': 'coredns', 'resources': kube_coredns_resources}]}}}} | to_json }}'
   register: _coredns
   changed_when: "'no change' not in _coredns.stdout"
+
+# kube-proxy reads its config from the kube-proxy ConfigMap (kubeadm upgrade keeps it from there, not from
+# kubeadm-config.yaml); set the metrics address there and restart the DaemonSet only when it changed.
+- name: kube-proxy metrics bind address
+  ansible.builtin.shell: |
+    set -euo pipefail
+    k="kubectl --kubeconfig /etc/kubernetes/admin.conf -n kube-system"
+    cur=$($k get cm kube-proxy -o json | jq -r '.data["config.conf"]' | sed -n 's/^metricsBindAddress: *//p' | tr -d '"')
+    [ "$cur" = "{{ kube_proxy_metrics_bind }}" ] && exit 0
+    $k get cm kube-proxy -o json \
+      | jq '.data["config.conf"] |= (split("\n") | map(if startswith("metricsBindAddress:")
+          then "metricsBindAddress: {{ kube_proxy_metrics_bind }}" else . end) | join("\n"))' \
+      | $k replace -f -
+    $k rollout restart ds/kube-proxy
+    $k rollout status ds/kube-proxy --timeout=120s
+    echo CHANGED
+  args:
+    executable: /bin/bash
+  register: _kp_metrics
+  changed_when: "'CHANGED' in _kp_metrics.stdout"
 
 # ---------- day-2: kubelet serving cert via CSR ----------
 - name: Kubelet - serverTLSBootstrap

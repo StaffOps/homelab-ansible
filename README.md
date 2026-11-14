@@ -42,6 +42,24 @@ Os requests de kube-apiserver, etcd e kube-controller-manager ficam em `kube_con
 de propósito (um OOM ali derruba o cluster). CoreDNS é ajustado com `kubectl patch`; um `kubeadm upgrade` o
 reseta, e rodar o role de novo o restaura.
 
+## Métricas para o Prometheus (role kubernetes)
+O Prometheus (do `homelab-gitops`) raspa estes endpoints no IP do nó. O UFW só os libera para os CIDRs de pods e
+services do cluster; da LAN continuam fechados.
+
+| componente | endpoint | observação |
+|---|---|---|
+| etcd | `http://192.168.68.104:2381/metrics` | `listen-metrics-urls` (127.0.0.1 + IP do nó) |
+| kube-proxy | `http://:10249/metrics` | `metricsBindAddress` (`kube_proxy_metrics_bind`) |
+| kube-scheduler | `https://:10259/metrics` | `bind-address: 0.0.0.0`; exige token (403 sem) |
+| kube-controller-manager | `https://:10257/metrics` | idem |
+| Calico Felix / Typha | `:9091` / `:9093` | `calico_felix_metrics_port` / `calico_typha_metrics_port`; Service `calico-typha-metrics` |
+| tigera-operator | `:9484` | `METRICS_ENABLED=true` |
+
+Mudar o `kubeadm-config` regenera os quatro manifestos do control plane (backup em
+`/etc/kubernetes/manifests-bak-<timestamp>`) e roda `kubeadm init phase upload-config`: o API fica 2-3 min
+fora (o etcd volta por último e o apiserver reinicia até conectar). O kube-proxy é ajustado no ConfigMap e
+reiniciado pelo role.
+
 ## GPU (role gpu)
 GeForce GT 740 (Kepler, compute 3.0, 4 GiB) com o driver `nvidia-driver-470-server` já instalado no Ubuntu (o
 role não gerencia o driver, só confere com `nvidia-smi`). Pods usam a GPU com `runtimeClassName: nvidia` e
