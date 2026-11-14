@@ -376,6 +376,7 @@
     content: >-
       {{ _admin_conf.content | b64decode
          | replace('kubernetes-admin@' ~ inventory_hostname, inventory_hostname)
+         | replace('server: https://' ~ ansible_host ~ ':6443', 'server: https://' ~ kube_api_client_host ~ ':6443')
          | regex_replace('(name|user|cluster): kubernetes(-admin)?\n', '\1: ' ~ inventory_hostname ~ '\n') }}
   delegate_to: localhost
   become: false

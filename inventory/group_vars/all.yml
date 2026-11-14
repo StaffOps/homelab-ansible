@@ -37,3 +37,4 @@ motd_environment: "homelab"
 # Role defaults: roles/kubernetes/defaults/main.yml (versions, CIDRs, Calico options)
 # Extra API server certificate SANs (Cloudflare A record -> 192.168.68.104, DNS only)
 kube_cert_extra_sans: ["k8s01.staffops.space"]
+kube_api_client_host: k8s01.staffops.space   # local kubeconfig uses the DNS name

@@ -7,6 +7,8 @@ kube_cert_sans: "{{ [ansible_host, ansible_hostname] + kube_cert_extra_sans }}"
 # Single node: remove the control-plane NoSchedule taint so workloads can run here at all.
 kube_untaint_control_plane: true
 kube_local_kubeconfig: "{{ playbook_dir }}/kubeconfig"
+# API address written into the local kubeconfig (must be one of the cert SANs). Default: the node IP.
+kube_api_client_host: "{{ ansible_host }}"
 # Backup of the Secrets encryption key, OUTSIDE the repo (losing it = losing every Secret)
 kube_encryption_backup: "~/.config/homelab/{{ inventory_hostname }}-encryption-config.yaml"
 kube_audit_log_maxage: 7             # days
