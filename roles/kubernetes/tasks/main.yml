@@ -294,7 +294,7 @@
 - name: Current Calico (tigera-operator) release
   ansible.builtin.shell: >-
     helm --kubeconfig /etc/kubernetes/admin.conf list -n tigera-operator -f '^calico$' -o json
-    | jq -r '.[0].chart // ""'
+    | jq -r 'if length == 0 then "" else "\(.[0].chart) \(.[0].status)" end'
   register: _calico_release
   changed_when: false
   check_mode: false
@@ -310,15 +310,17 @@
     | kubectl --kubeconfig /etc/kubernetes/admin.conf apply --server-side --force-conflicts -f -
   args:
     executable: /bin/bash
-  when: _calico_values is changed or _calico_release.stdout != 'tigera-operator-' ~ calico_version
+  when: _calico_values is changed or _calico_release.stdout != 'tigera-operator-' ~ calico_version ~ ' deployed'
 
+# Helm 4 uses server-side apply; the operator co-owns defaulted Installation fields -> force our values
 - name: Install / upgrade Calico {{ calico_version }} (tigera-operator)
   ansible.builtin.command: >-
     helm --kubeconfig /etc/kubernetes/admin.conf upgrade --install calico tigera-operator
     --repo https://docs.tigera.io/calico/charts --version {{ calico_version }}
     -n tigera-operator --create-namespace
     -f /etc/kubernetes/calico-values.yaml --wait --timeout 10m
-  when: _calico_values is changed or _calico_release.stdout != 'tigera-operator-' ~ calico_version
+    --force-conflicts
+  when: _calico_values is changed or _calico_release.stdout != 'tigera-operator-' ~ calico_version ~ ' deployed'
 
 - name: Wait for node Ready (needs the CNI)
   ansible.builtin.command: >-

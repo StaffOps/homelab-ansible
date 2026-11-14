@@ -1,0 +1,74 @@
+---
+# curl instead of get_url: ansible-core 2.12 get_url breaks on the target's Python 3.12
+- name: Tailscale apt signing key
+  ansible.builtin.command: >-
+    curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/{{ ansible_distribution_release }}.noarmor.gpg
+    -o /usr/share/keyrings/tailscale-archive-keyring.gpg
+  args:
+    creates: /usr/share/keyrings/tailscale-archive-keyring.gpg
+
+- name: Tailscale apt repository
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/tailscale.list
+    mode: "0644"
+    content: >
+      deb [signed-by=/usr/share/keyrings/tailscale-archive-keyring.gpg]
+      https://pkgs.tailscale.com/stable/ubuntu {{ ansible_distribution_release }} main
+
+- name: Install tailscale
+  ansible.builtin.apt:
+    name: tailscale
+    state: present
+    update_cache: true
+
+- name: Enable tailscaled
+  ansible.builtin.systemd:
+    name: tailscaled
+    enabled: true
+    state: started
+
+- name: Tailscale state
+  ansible.builtin.shell: tailscale status --json | jq -r '.BackendState'
+  register: _ts_state
+  changed_when: false
+  check_mode: false
+
+- name: Read auth key (control machine)
+  ansible.builtin.set_fact:
+    _ts_authkey: "{{ lookup('file', tailscale_authkey_file) | trim }}"
+  no_log: true
+  when: _ts_state.stdout != 'Running'
+
+- name: Join the tailnet
+  ansible.builtin.command: >-
+    tailscale up --authkey={{ _ts_authkey }} --hostname={{ tailscale_hostname }}
+    --advertise-routes={{ tailscale_advertise_routes | join(',') }}
+  no_log: true
+  when: _ts_state.stdout != 'Running'
+
+- name: Keep advertised routes / hostname in sync
+  ansible.builtin.command: >-
+    tailscale set --hostname={{ tailscale_hostname }}
+    --advertise-routes={{ tailscale_advertise_routes | join(',') }}
+  changed_when: false
+
+- name: UFW - node ports reachable from the tailnet
+  community.general.ufw:
+    rule: allow
+    interface: tailscale0
+    direction: in
+    port: "{{ item }}"
+    proto: tcp
+    comment: "tailscale {{ item }}"
+  loop: "{{ tailscale_allowed_tcp_ports }}"
+
+- name: Tailscale identity
+  ansible.builtin.shell: >-
+    tailscale status --json | jq -r '"\(.Self.DNSName) \(.Self.TailscaleIPs[0]) routes=\(.Self.PrimaryRoutes // [] | join(","))"'
+  register: _ts_self
+  changed_when: false
+  check_mode: false
+
+- name: Show tailnet identity
+  ansible.builtin.debug:
+    msg: "{{ _ts_self.stdout }}  (rotas so ficam ativas depois de aprovadas no admin console)"

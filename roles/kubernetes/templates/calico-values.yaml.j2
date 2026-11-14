@@ -5,6 +5,9 @@ installation:
     type: Calico
   calicoNetwork:
     bgp: Disabled
+    # Pin node IP detection to the Kubernetes InternalIP (first-found could pick tailscale0 / 100.x)
+    nodeAddressAutodetectionV4:
+      kubernetes: NodeInternalIP
     ipPools:
       - name: default-ipv4-ippool
         cidr: "{{ kube_pod_cidr }}"

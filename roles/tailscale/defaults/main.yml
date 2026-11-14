@@ -1,0 +1,9 @@
+---
+# Auth key file on the control machine, OUTSIDE the repo (create at https://login.tailscale.com/admin/settings/keys).
+# Only read when the node is not logged in yet.
+tailscale_authkey_file: "~/.config/homelab/tailscale-authkey"
+tailscale_hostname: "{{ inventory_hostname }}"
+# Subnet routes announced to the tailnet (must be approved in the admin console, or via ACL autoApprovers)
+tailscale_advertise_routes: []
+# Ports reachable from the tailnet on the node itself (UFW, interface tailscale0)
+tailscale_allowed_tcp_ports: ["{{ ssh_port | string }}", "6443"]
