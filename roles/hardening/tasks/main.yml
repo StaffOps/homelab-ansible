@@ -48,7 +48,7 @@
   check_mode: false   # read-only, safe to run during --check
 
 # ---------- Firewall ----------
-- name: UFW - allow forwarded traffic (required by k3s pod networking)
+- name: UFW - allow forwarded traffic (required by Calico pod networking)
   ansible.builtin.lineinfile:
     path: /etc/default/ufw
     regexp: '^DEFAULT_FORWARD_POLICY='

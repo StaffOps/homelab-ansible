@@ -23,7 +23,7 @@ admin_user: karlipegomes
 admin_pubkey_file: ~/.ssh/id_rsa.pub
 ssh_port: 22
 ssh_allow_users: ["{{ admin_user }}"]
-# Networks allowed to reach SSH / k3s API / ingress. Adjust to your LAN.
+# Networks allowed to reach SSH / Kubernetes API (fail2ban never bans them). Adjust to your LAN.
 trusted_cidrs:
   - 192.168.68.0/24
 fail2ban_bantime: 1h
