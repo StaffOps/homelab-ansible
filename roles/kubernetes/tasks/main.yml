@@ -263,6 +263,16 @@
   failed_when: _untaint.rc != 0 and 'not found' not in _untaint.stderr
   when: kube_untaint_control_plane | bool
 
+# kubeadm labels control-plane nodes so LB implementations (MetalLB) skip them; single node -> no LB at all.
+- name: Allow LoadBalancer announcements from the control-plane (single node)
+  ansible.builtin.command: >-
+    kubectl --kubeconfig /etc/kubernetes/admin.conf
+    label nodes --all node.kubernetes.io/exclude-from-external-load-balancers-
+  register: _lblabel
+  changed_when: "'unlabeled' in _lblabel.stdout"
+  failed_when: _lblabel.rc != 0 and 'not found' not in _lblabel.stderr
+  when: kube_untaint_control_plane | bool
+
 # ---------- Helm + Calico (CNI) ----------
 - name: Check installed helm version
   ansible.builtin.command: /usr/local/bin/helm version --template '{{ "{{" }} .Version {{ "}}" }}'
