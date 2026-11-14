@@ -13,3 +13,4 @@
     - { role: tailscale, tags: [tailscale] }
     - { role: motd, tags: [motd] }
     - { role: kubernetes, tags: [kubernetes], when: "'kube_control_plane' in group_names" }
+    - { role: gpu, tags: [gpu], when: gpu_enabled | default(false) | bool }

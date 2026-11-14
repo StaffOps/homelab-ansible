@@ -1,0 +1,86 @@
+---
+- name: NVIDIA driver loaded (nvidia-smi)
+  ansible.builtin.command: nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader
+  register: _nvidia_smi
+  changed_when: false
+  check_mode: false
+
+- name: Show GPU
+  ansible.builtin.debug:
+    msg: "{{ _nvidia_smi.stdout }}"
+
+# ---------- NVIDIA Container Toolkit (nvidia-container-runtime + nvidia-ctk) ----------
+# curl instead of get_url: ansible-core 2.12 get_url breaks on the target's Python 3.12
+- name: NVIDIA container toolkit apt signing key
+  ansible.builtin.shell: >-
+    curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey
+    | gpg --dearmor -o /etc/apt/keyrings/nvidia-container-toolkit.gpg
+  args:
+    creates: /etc/apt/keyrings/nvidia-container-toolkit.gpg
+
+- name: NVIDIA container toolkit apt repository
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/nvidia-container-toolkit.list
+    mode: "0644"
+    content: >
+      deb [signed-by=/etc/apt/keyrings/nvidia-container-toolkit.gpg]
+      https://nvidia.github.io/libnvidia-container/stable/deb/$(ARCH) /
+
+- name: Install NVIDIA container toolkit
+  ansible.builtin.apt:
+    name: "{{ gpu_container_toolkit_package }}"
+    state: present
+    update_cache: true
+
+# ---------- containerd: extra runtime "nvidia" (runc stays the default) ----------
+# config.toml already has imports = ['/etc/containerd/conf.d/*.toml']. Pods opt in with
+# runtimeClassName: nvidia (RuntimeClass comes from homelab-gitops); everything else keeps plain runc.
+- name: containerd drop-in directory
+  ansible.builtin.file:
+    path: /etc/containerd/conf.d
+    state: directory
+    mode: "0755"
+
+- name: containerd runtime "{{ gpu_runtime_name }}" (nvidia-container-runtime)
+  ansible.builtin.copy:
+    dest: /etc/containerd/conf.d/99-nvidia.toml
+    mode: "0644"
+    content: |
+      # Managed by homelab-ansible (role gpu) - do not edit by hand
+      version = 3
+      [plugins.'io.containerd.cri.v1.runtime'.containerd.runtimes.{{ gpu_runtime_name }}]
+        runtime_type = 'io.containerd.runc.v2'
+        [plugins.'io.containerd.cri.v1.runtime'.containerd.runtimes.{{ gpu_runtime_name }}.options]
+          BinaryName = '/usr/bin/nvidia-container-runtime'
+          SystemdCgroup = true
+  notify: Restart containerd (gpu)
+
+- name: Apply containerd config
+  ansible.builtin.meta: flush_handlers
+
+- name: Assert containerd loaded the runtime
+  ansible.builtin.shell: >-
+    containerd config dump
+    | grep -q "runtimes.{{ gpu_runtime_name }}.options"
+  changed_when: false
+  check_mode: false
+
+- name: Assert the toolkit sees the GPU (same path a container uses)
+  ansible.builtin.command: nvidia-container-cli info
+  register: _nvcli
+  changed_when: false
+  check_mode: false
+
+- name: Show toolkit view
+  ansible.builtin.debug:
+    msg: "{{ _nvcli.stdout_lines }}"
+
+# ---------- Kubernetes: node label the NVIDIA device plugin DaemonSet selects on ----------
+# Without NFD/GFD the chart only schedules on nodes labelled nvidia.com/gpu.present=true.
+- name: Label node as GPU node (nvidia.com/gpu.present=true)
+  ansible.builtin.command: >-
+    kubectl --kubeconfig /etc/kubernetes/admin.conf
+    label node {{ ansible_hostname }} nvidia.com/gpu.present=true --overwrite
+  register: _gpu_label
+  changed_when: "'not labeled' not in _gpu_label.stdout"
+  when: "'kube_control_plane' in group_names"

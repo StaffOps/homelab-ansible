@@ -1,0 +1,6 @@
+---
+# NVIDIA GPU for containers. The driver itself is NOT managed here: k8s01 already runs the Ubuntu package
+# nvidia-driver-470-server (last branch that supports its Kepler GT 740; CUDA <= 11.4). Ubuntu never jumps
+# to another driver branch by itself, so the role only checks that the driver works.
+gpu_runtime_name: nvidia                         # containerd runtime name = RuntimeClass handler
+gpu_container_toolkit_package: nvidia-container-toolkit

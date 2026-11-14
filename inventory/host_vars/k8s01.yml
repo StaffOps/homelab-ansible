@@ -9,3 +9,7 @@ net_dns: [192.168.1.254, 4.2.2.2]   # same servers DHCP was providing
 
 # Tailscale subnet router: the node itself + the MetalLB L2 pool (.240-.245 lives in .240/29)
 tailscale_advertise_routes: [192.168.68.104/32, 192.168.68.240/29]
+
+# ---- gpu ----
+# NVIDIA GeForce GT 740 (Kepler, 4 GiB, driver 470): container toolkit + containerd runtime "nvidia"
+gpu_enabled: true
