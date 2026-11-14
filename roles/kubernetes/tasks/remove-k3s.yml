@@ -1,0 +1,35 @@
+---
+- name: Check for k3s
+  ansible.builtin.stat:
+    path: /usr/local/bin/k3s-uninstall.sh
+  register: _k3s_uninstall
+
+- name: Uninstall k3s (removes cluster, data, iptables rules, CNI interfaces)
+  ansible.builtin.command: /usr/local/bin/k3s-uninstall.sh
+  when: _k3s_uninstall.stat.exists
+
+- name: Remove k3s leftovers
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /usr/local/bin/k3s-install.sh
+    - /etc/sysctl.d/90-k3s.conf
+    - /etc/modules-load.d/k3s.conf
+    - /etc/rancher
+    - "/home/{{ admin_user }}/.kube/config"
+  when: _k3s_uninstall.stat.exists
+
+- name: Remove k3s-only UFW rules
+  community.general.ufw:
+    rule: allow
+    src: "{{ item.src }}"
+    port: "{{ item.port | default(omit) }}"
+    proto: "{{ item.proto | default(omit) }}"
+    delete: true
+  loop:
+    - { src: 10.42.0.0/16 }
+    - { src: 10.43.0.0/16 }
+    - { src: "{{ trusted_cidrs[0] }}", port: "80", proto: tcp }
+    - { src: "{{ trusted_cidrs[0] }}", port: "443", proto: tcp }
+  when: _k3s_uninstall.stat.exists

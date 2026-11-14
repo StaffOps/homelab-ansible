@@ -1,0 +1,26 @@
+---
+kube_version_minor: "1.37"           # apt channel on pkgs.k8s.io (latest = v1.37.x)
+kube_pod_cidr: 10.244.0.0/16         # Cilium ipam.mode=kubernetes uses the per-node podCIDR from this range
+kube_service_cidr: 10.96.0.0/12      # kubeadm default
+kube_cert_sans: ["{{ ansible_host }}", "{{ ansible_hostname }}"]
+# Single node: remove the control-plane NoSchedule taint so workloads can run here at all.
+kube_untaint_control_plane: true
+kube_local_kubeconfig: "{{ playbook_dir }}/kubeconfig"
+# Backup of the Secrets encryption key, OUTSIDE the repo (losing it = losing every Secret)
+kube_encryption_backup: "~/.config/homelab/{{ inventory_hostname }}-encryption-config.yaml"
+kube_audit_log_maxage: 7             # days
+kube_audit_log_maxbackup: 5          # files
+kube_audit_log_maxsize: 100          # MB per file
+kube_sysctl:
+  net.ipv4.ip_forward: 1
+  net.bridge.bridge-nf-call-iptables: 1
+  net.bridge.bridge-nf-call-ip6tables: 1
+  fs.inotify.max_user_instances: 8192
+  fs.inotify.max_user_watches: 524288
+
+helm_version: v4.3.2
+cilium_version: 1.20.4
+# Cilium Gateway API controller (needs Gateway API CRDs installed BEFORE Cilium starts)
+cilium_gateway_api: false
+gateway_api_version: v1.6.3
+cilium_hubble_ui: false

@@ -1,0 +1,323 @@
+---
+- name: Remove k3s if present
+  ansible.builtin.import_tasks: remove-k3s.yml
+
+# ---------- host prerequisites ----------
+- name: Disable swap now
+  ansible.builtin.command: swapoff -a
+  when: ansible_swaptotal_mb | int > 0
+
+- name: Disable swap permanently (fstab)
+  ansible.builtin.replace:
+    path: /etc/fstab
+    regexp: '^([^#].*\sswap\s.*)$'
+    replace: '# \1'
+
+- name: Load kernel modules now
+  community.general.modprobe:
+    name: "{{ item }}"
+    state: present
+  loop: [overlay, br_netfilter]
+
+- name: Persist kernel modules
+  ansible.builtin.copy:
+    dest: /etc/modules-load.d/kubernetes.conf
+    mode: "0644"
+    content: "overlay\nbr_netfilter\n"
+
+- name: Kubernetes sysctl prerequisites
+  ansible.posix.sysctl:
+    name: "{{ item.key }}"
+    value: "{{ item.value }}"
+    sysctl_file: /etc/sysctl.d/90-kubernetes.conf
+    reload: true
+  loop: "{{ kube_sysctl | dict2items }}"
+
+# ---------- container runtime ----------
+- name: Install containerd
+  ansible.builtin.apt:
+    name: containerd
+    state: present
+    update_cache: true
+
+- name: containerd config directory
+  ansible.builtin.file:
+    path: /etc/containerd
+    state: directory
+    mode: "0755"
+
+- name: Generate default containerd config
+  ansible.builtin.shell: containerd config default > /etc/containerd/config.toml
+  args:
+    creates: /etc/containerd/config.toml
+
+- name: containerd - use systemd cgroup driver (same as kubelet)
+  ansible.builtin.replace:
+    path: /etc/containerd/config.toml
+    regexp: 'SystemdCgroup = false'
+    replace: 'SystemdCgroup = true'
+  notify: Restart containerd
+
+- name: Assert SystemdCgroup is enabled
+  ansible.builtin.command: grep -q 'SystemdCgroup = true' /etc/containerd/config.toml
+  changed_when: false
+  check_mode: false
+
+- name: Enable containerd
+  ansible.builtin.systemd:
+    name: containerd
+    enabled: true
+    state: started
+
+- name: Apply containerd config before kubeadm
+  ansible.builtin.meta: flush_handlers
+
+# ---------- kubeadm / kubelet / kubectl ----------
+- name: apt keyrings directory
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: "0755"
+
+# curl instead of get_url: ansible-core 2.12 get_url breaks on the target's Python 3.12
+- name: pkgs.k8s.io signing key
+  ansible.builtin.shell: >-
+    curl -fsSL https://pkgs.k8s.io/core:/stable:/v{{ kube_version_minor }}/deb/Release.key
+    | gpg --dearmor -o /etc/apt/keyrings/kubernetes-v{{ kube_version_minor }}.gpg
+  args:
+    creates: /etc/apt/keyrings/kubernetes-v{{ kube_version_minor }}.gpg
+
+- name: pkgs.k8s.io apt repository
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/kubernetes.list
+    mode: "0644"
+    content: >
+      deb [signed-by=/etc/apt/keyrings/kubernetes-v{{ kube_version_minor }}.gpg]
+      https://pkgs.k8s.io/core:/stable:/v{{ kube_version_minor }}/deb/ /
+
+- name: Install kubelet, kubeadm, kubectl
+  ansible.builtin.apt:
+    name: [kubelet, kubeadm, kubectl]
+    state: present
+    update_cache: true
+
+- name: Hold Kubernetes packages (upgrades are done with kubeadm, not apt)
+  ansible.builtin.dpkg_selections:
+    name: "{{ item }}"
+    selection: hold
+  loop: [kubelet, kubeadm, kubectl]
+
+- name: Enable kubelet
+  ansible.builtin.systemd:
+    name: kubelet
+    enabled: true
+
+# ---------- firewall ----------
+- name: UFW - Kubernetes API from trusted networks
+  community.general.ufw:
+    rule: allow
+    port: "6443"
+    proto: tcp
+    src: "{{ item }}"
+    comment: kube-apiserver
+  loop: "{{ trusted_cidrs }}"
+
+- name: UFW - allow pod and service networks
+  community.general.ufw:
+    rule: allow
+    src: "{{ item }}"
+    comment: kubernetes cluster network
+  loop: ["{{ kube_pod_cidr }}", "{{ kube_service_cidr }}"]
+
+# ---------- Secrets encryption at rest ----------
+- name: Encryption config directory
+  ansible.builtin.file:
+    path: /etc/kubernetes/enc
+    state: directory
+    mode: "0700"
+
+# Generated once on the host; never rendered from the repo. Re-running does not rotate the key.
+- name: Generate EncryptionConfiguration (secretbox) if missing
+  ansible.builtin.shell: |
+    set -euo pipefail
+    umask 077
+    key=$(head -c 32 /dev/urandom | base64)
+    cat > /etc/kubernetes/enc/encryption-config.yaml <<EOF
+    apiVersion: apiserver.config.k8s.io/v1
+    kind: EncryptionConfiguration
+    resources:
+      - resources: [secrets]
+        providers:
+          - secretbox:
+              keys:
+                - name: key1
+                  secret: ${key}
+          - identity: {}
+    EOF
+  args:
+    executable: /bin/bash
+    creates: /etc/kubernetes/enc/encryption-config.yaml
+
+- name: Backup encryption key to the control machine (outside the repo)
+  ansible.builtin.fetch:
+    src: /etc/kubernetes/enc/encryption-config.yaml
+    dest: "{{ kube_encryption_backup }}"
+    flat: true
+
+- name: Restrict local key backup permissions
+  ansible.builtin.file:
+    path: "{{ kube_encryption_backup }}"
+    mode: "0600"
+  delegate_to: localhost
+  become: false
+
+# ---------- Audit log ----------
+- name: Audit directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0700"
+  loop: [/etc/kubernetes/audit, /var/log/kubernetes/audit]
+
+- name: Audit policy
+  ansible.builtin.template:
+    src: audit-policy.yaml.j2
+    dest: /etc/kubernetes/audit/policy.yaml
+    mode: "0600"
+
+# ---------- cluster ----------
+- name: Get installed kubeadm version
+  ansible.builtin.command: kubeadm version -o short
+  register: _kubeadm_version
+  changed_when: false
+  check_mode: false
+
+- name: kubeadm config
+  ansible.builtin.template:
+    src: kubeadm-config.yaml.j2
+    dest: /etc/kubernetes/kubeadm-config.yaml
+    mode: "0600"
+
+- name: kubeadm init
+  ansible.builtin.command: kubeadm init --config /etc/kubernetes/kubeadm-config.yaml
+  args:
+    creates: /etc/kubernetes/admin.conf
+
+- name: Wait for kube-apiserver
+  ansible.builtin.command: kubectl --kubeconfig /etc/kubernetes/admin.conf get --raw /readyz
+  register: _readyz
+  until: _readyz.rc == 0
+  retries: 30
+  delay: 5
+  changed_when: false
+
+- name: Remove control-plane taint (single node)
+  ansible.builtin.command: >-
+    kubectl --kubeconfig /etc/kubernetes/admin.conf
+    taint nodes --all node-role.kubernetes.io/control-plane:NoSchedule-
+  register: _untaint
+  changed_when: "'untainted' in _untaint.stdout"
+  failed_when: _untaint.rc != 0 and 'not found' not in _untaint.stderr
+  when: kube_untaint_control_plane | bool
+
+# ---------- Helm + Cilium ----------
+- name: Check installed helm version
+  ansible.builtin.command: /usr/local/bin/helm version --template '{{ "{{" }} .Version {{ "}}" }}'
+  register: _helm_current
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Install helm {{ helm_version }}
+  ansible.builtin.shell: |
+    set -euo pipefail
+    tmp=$(mktemp -d)
+    curl -fsSL https://get.helm.sh/helm-{{ helm_version }}-linux-{{ _arch }}.tar.gz | tar -xz -C "$tmp"
+    install -m 0755 "$tmp/linux-{{ _arch }}/helm" /usr/local/bin/helm
+    rm -rf "$tmp"
+  args:
+    executable: /bin/bash
+  vars:
+    _arch: "{{ 'arm64' if ansible_architecture == 'aarch64' else 'amd64' }}"
+  when: _helm_current.stdout | default('') != helm_version
+
+- name: Gateway API CRDs {{ gateway_api_version }} (must exist before Cilium starts)
+  ansible.builtin.command: >-
+    kubectl --kubeconfig /etc/kubernetes/admin.conf apply --server-side
+    -f https://github.com/kubernetes-sigs/gateway-api/releases/download/{{ gateway_api_version }}/standard-install.yaml
+  register: _gwapi
+  changed_when: "'serverside-applied' in _gwapi.stdout and 'unchanged' not in _gwapi.stdout"
+  when: cilium_gateway_api | bool
+
+- name: Cilium values
+  ansible.builtin.template:
+    src: cilium-values.yaml.j2
+    dest: /etc/kubernetes/cilium-values.yaml
+    mode: "0600"
+  register: _cilium_values
+
+- name: Current Cilium release
+  ansible.builtin.shell: >-
+    helm --kubeconfig /etc/kubernetes/admin.conf list -n kube-system -f '^cilium$' -o json
+    | jq -r '.[0].chart // ""'
+  register: _cilium_release
+  changed_when: false
+  check_mode: false
+
+- name: Install / upgrade Cilium {{ cilium_version }}
+  ansible.builtin.command: >-
+    helm --kubeconfig /etc/kubernetes/admin.conf upgrade --install cilium cilium
+    --repo https://helm.cilium.io --version {{ cilium_version }}
+    -n kube-system -f /etc/kubernetes/cilium-values.yaml --wait --timeout 10m
+  when: _cilium_values is changed or _cilium_release.stdout != 'cilium-' ~ cilium_version
+
+- name: Wait for node Ready (needs the CNI)
+  ansible.builtin.command: >-
+    kubectl --kubeconfig /etc/kubernetes/admin.conf
+    wait --for=condition=Ready node --all --timeout=300s
+  changed_when: false
+
+# ---------- kubeconfig ----------
+- name: ~/.kube for admin user
+  ansible.builtin.file:
+    path: "/home/{{ admin_user }}/.kube"
+    state: directory
+    owner: "{{ admin_user }}"
+    group: "{{ admin_user }}"
+    mode: "0700"
+
+- name: kubeconfig for admin user on the host
+  ansible.builtin.copy:
+    src: /etc/kubernetes/admin.conf
+    dest: "/home/{{ admin_user }}/.kube/config"
+    remote_src: true
+    owner: "{{ admin_user }}"
+    group: "{{ admin_user }}"
+    mode: "0600"
+
+- name: Read admin kubeconfig
+  ansible.builtin.slurp:
+    src: /etc/kubernetes/admin.conf
+  register: _admin_conf
+
+- name: Save kubeconfig locally (cluster/user/context renamed to the hostname)
+  ansible.builtin.copy:
+    dest: "{{ kube_local_kubeconfig }}"
+    mode: "0600"
+    content: >-
+      {{ _admin_conf.content | b64decode
+         | replace('kubernetes-admin@kubernetes', inventory_hostname)
+         | regex_replace('(name|user|cluster): kubernetes(-admin)?\n', '\1: ' ~ inventory_hostname ~ '\n') }}
+  delegate_to: localhost
+  become: false
+
+- name: kubectl env for admin user (KUBECONFIG, completion, alias k)
+  ansible.builtin.blockinfile:
+    path: "/home/{{ admin_user }}/.bashrc"
+    marker: "# {mark} ANSIBLE MANAGED - kubectl"
+    block: |
+      export KUBECONFIG=$HOME/.kube/config
+      source <(kubectl completion bash)
+      alias k=kubectl
+      complete -o default -F __start_kubectl k
+  become: false
