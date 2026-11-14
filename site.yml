@@ -1,4 +1,4 @@
-- name: Homelab Ubuntu baseline + k3s
+- name: Homelab Ubuntu baseline + Kubernetes (kubeadm + Calico)
   hosts: all
   become: true
   pre_tasks:
@@ -10,4 +10,4 @@
     - { role: base, tags: [base, update] }
     - { role: hardening, tags: [hardening] }
     - { role: motd, tags: [motd] }
-    - { role: k3s, tags: [k3s], when: "'k3s_server' in group_names" }
+    - { role: kubernetes, tags: [kubernetes], when: "'kube_control_plane' in group_names" }

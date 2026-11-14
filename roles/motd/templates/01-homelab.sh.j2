@@ -27,14 +27,15 @@ row "Memory"   "$mem"
 row "Disk /"   "$disk"
 row "Sessions" "$users"
 
-if command -v k3s >/dev/null 2>&1; then
-  if systemctl is-active --quiet k3s; then
-    ver=$(k3s --version 2>/dev/null | awk 'NR==1{print $3}')
-    nodes=$(timeout 3 k3s kubectl get nodes --no-headers 2>/dev/null | awk '{s[$2]++} END {for (k in s) printf "%s %s ", s[k], k}')
-    pods=$(timeout 3 k3s kubectl get pods -A --no-headers 2>/dev/null | awk '$4!="Running" && $4!="Completed"' | wc -l)
-    row "k3s" "${G}active${N} ${ver}  nodes: ${nodes:-?}  pods not ready: ${pods}"
+if [ -f /etc/kubernetes/admin.conf ]; then
+  if systemctl is-active --quiet kubelet; then
+    K="kubectl --kubeconfig /etc/kubernetes/admin.conf --request-timeout=3s"
+    ver=$($K version -o json 2>/dev/null | jq -r '.serverVersion.gitVersion // "?"')
+    nodes=$($K get nodes --no-headers 2>/dev/null | awk '{s[$2]++} END {for (k in s) printf "%s %s ", s[k], k}')
+    pods=$($K get pods -A --no-headers 2>/dev/null | awk '$4!="Running" && $4!="Completed"' | wc -l)
+    row "Kubernetes" "${G}kubelet active${N} ${ver}  nodes: ${nodes:-?}  pods not ready: ${pods}"
   else
-    row "k3s" "${R}inactive${N}"
+    row "Kubernetes" "${R}kubelet inactive${N}"
   fi
 fi
 

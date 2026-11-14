@@ -1,0 +1,13 @@
+# {{ ansible_managed }}
+# Calico {{ calico_version }} via tigera-operator. kube-proxy stays (iptables mode); Istio ambient chains istio-cni on top.
+installation:
+  cni:
+    type: Calico
+  calicoNetwork:
+    bgp: Disabled
+    ipPools:
+      - name: default-ipv4-ippool
+        cidr: "{{ kube_pod_cidr }}"
+        encapsulation: {{ calico_encapsulation }}
+        natOutgoing: Enabled
+        nodeSelector: all()

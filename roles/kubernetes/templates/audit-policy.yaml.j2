@@ -1,0 +1,40 @@
+# {{ ansible_managed }}
+# First matching rule wins.
+apiVersion: audit.k8s.io/v1
+kind: Policy
+omitStages: [RequestReceived]
+rules:
+  # Noise: health/metrics endpoints
+  - level: None
+    nonResourceURLs: ["/healthz*", "/readyz*", "/livez*", "/version", "/metrics", "/openapi*"]
+  # Noise: events
+  - level: None
+    resources:
+      - group: ""
+        resources: [events]
+      - group: events.k8s.io
+        resources: [events]
+  # Noise: leader election / node heartbeats
+  - level: None
+    resources:
+      - group: coordination.k8s.io
+        resources: [leases]
+  # Noise: reads by control-plane components and nodes
+  - level: None
+    verbs: [get, list, watch]
+    users: [system:kube-scheduler, system:kube-controller-manager, system:apiserver]
+  - level: None
+    verbs: [get, list, watch]
+    userGroups: [system:nodes]
+  # Never log bodies of sensitive objects - who/what/when only
+  - level: Metadata
+    resources:
+      - group: ""
+        resources: [secrets, configmaps, serviceaccounts/token]
+      - group: authentication.k8s.io
+        resources: [tokenreviews]
+  # Writes: keep the request body (what was changed)
+  - level: Request
+    verbs: [create, update, patch, delete, deletecollection]
+  # Everything else (reads by users / controllers): metadata only
+  - level: Metadata
