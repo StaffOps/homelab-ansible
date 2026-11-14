@@ -7,6 +7,9 @@ localAPIEndpoint:
 nodeRegistration:
   name: "{{ ansible_hostname }}"
   criSocket: unix:///run/containerd/containerd.sock
+# Resource requests for the static pods (files written by the role)
+patches:
+  directory: /etc/kubernetes/patches
 ---
 apiVersion: kubeadm.k8s.io/v1beta4
 kind: ClusterConfiguration

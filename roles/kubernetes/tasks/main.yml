@@ -198,10 +198,25 @@
     dest: /etc/kubernetes/kubeadm-config.yaml
     mode: "0600"
 
+- name: kubeadm patches directory
+  ansible.builtin.file:
+    path: /etc/kubernetes/patches
+    state: directory
+    mode: "0700"
+
+- name: Control-plane resource patches (strategic merge on the static pod manifests)
+  ansible.builtin.copy:
+    dest: "/etc/kubernetes/patches/{{ item.key }}+strategic.yaml"
+    mode: "0600"
+    content: "{{ {'spec': {'containers': [{'name': item.key, 'resources': item.value}]}} | to_nice_yaml(indent=2) }}"
+  loop: "{{ kube_control_plane_resources | dict2items }}"
+  register: _cp_patches
+
 - name: kubeadm init
   ansible.builtin.command: kubeadm init --config /etc/kubernetes/kubeadm-config.yaml
   args:
     creates: /etc/kubernetes/admin.conf
+  register: _kubeadm_init
 
 - name: Wait for kube-apiserver
   ansible.builtin.command: kubectl --kubeconfig /etc/kubernetes/admin.conf get --raw /readyz
@@ -210,6 +225,24 @@
   retries: 30
   delay: 5
   changed_when: false
+
+# ---------- day-2: static pod manifests (kubeadm only writes them at init/upgrade) ----------
+# Rewrites only the manifest whose patch changed; the kubelet then restarts that pod (API blip of ~30-60 s).
+- name: Regenerate static pod manifests whose resource patch changed
+  ansible.builtin.command: >-
+    kubeadm init phase
+    {{ 'etcd local' if item.item.key == 'etcd' else 'control-plane ' ~ (item.item.key | replace('kube-', '')) }}
+    --config /etc/kubernetes/kubeadm-config.yaml
+  loop: "{{ _cp_patches.results }}"
+  loop_control:
+    label: "{{ item.item.key }}"
+  when: item is changed and _kubeadm_init is not changed
+  register: _cp_regen
+
+- name: Give the kubelet time to restart the regenerated static pods
+  ansible.builtin.pause:
+    seconds: 45
+  when: _cp_regen is changed
 
 # ---------- day-2: apiserver SANs (kubeadm only sets them at init) ----------
 - name: Current apiserver certificate SANs
@@ -237,6 +270,14 @@
   retries: 30
   delay: 5
   changed_when: false
+
+- name: CoreDNS - replicas and resources (single node)
+  ansible.builtin.command: >-
+    kubectl --kubeconfig /etc/kubernetes/admin.conf -n kube-system patch deployment coredns --type strategic
+    -p '{{ {'spec': {'replicas': kube_coredns_replicas, 'template': {'spec': {'containers':
+    [{'name': 'coredns', 'resources': kube_coredns_resources}]}}}} | to_json }}'
+  register: _coredns
+  changed_when: "'no change' not in _coredns.stdout"
 
 # ---------- day-2: kubelet serving cert via CSR ----------
 - name: Kubelet - serverTLSBootstrap
