@@ -1,0 +1,101 @@
+---
+- name: systemd drop-in directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop: [/etc/systemd/system.conf.d, /etc/systemd/journald.conf.d]
+
+# ---------- Hardware watchdog ----------
+- name: Load watchdog driver at boot
+  ansible.builtin.copy:
+    dest: /etc/modules-load.d/watchdog.conf
+    mode: "0644"
+    content: "{{ resilience_watchdog_module }}\n"
+
+- name: Unload drivers we do not use (e.g. iTCO_wdt when the BIOS locks it)
+  community.general.modprobe:
+    name: "{{ item }}"
+    state: absent
+  loop: "{{ ['iTCO_wdt', 'softdog'] | reject('equalto', resilience_watchdog_module) | list }}"
+
+- name: Load watchdog driver now
+  community.general.modprobe:
+    name: "{{ resilience_watchdog_module }}"
+    state: present
+
+- name: Watchdog device present (the BIOS may lock the iTCO reset bit)
+  ansible.builtin.stat:
+    path: /dev/watchdog0
+  register: _wdog_dev
+
+- name: Fail clearly if the chip refused to arm
+  ansible.builtin.assert:
+    that: _wdog_dev.stat.exists
+    fail_msg: >-
+      /dev/watchdog0 missing after loading {{ resilience_watchdog_module }}.
+      Check 'dmesg | grep -i iTCO' (e.g. "NO_REBOOT flag ... disabled by hardware/BIOS").
+
+- name: systemd pets the hardware watchdog
+  ansible.builtin.copy:
+    dest: /etc/systemd/system.conf.d/10-watchdog.conf
+    mode: "0644"
+    content: |
+      # Managed by homelab-ansible (role resilience)
+      [Manager]
+      RuntimeWatchdogSec={{ resilience_watchdog_timeout }}
+      RebootWatchdogSec={{ resilience_reboot_watchdog }}
+  notify: Reexec systemd
+
+# ---------- Kernel: panic on lockups, reboot on panic ----------
+- name: Lockup detectors panic, panic reboots
+  ansible.posix.sysctl:
+    name: "{{ item.key }}"
+    value: "{{ item.value }}"
+    sysctl_file: /etc/sysctl.d/91-resilience.conf
+    reload: true
+  loop: "{{ resilience_sysctl | dict2items }}"
+
+# ---------- Journal ----------
+- name: Flush journal to disk more often
+  ansible.builtin.copy:
+    dest: /etc/systemd/journald.conf.d/10-sync.conf
+    mode: "0644"
+    content: |
+      # Managed by homelab-ansible (role resilience)
+      [Journal]
+      Storage=persistent
+      SyncIntervalSec={{ resilience_journal_sync }}
+  notify: Restart journald
+
+# ---------- No desktop on the server ----------
+- name: Current default boot target
+  ansible.builtin.command: systemctl get-default
+  register: _default_target
+  changed_when: false
+  check_mode: false
+
+- name: Boot to multi-user (no graphical login)
+  ansible.builtin.command: systemctl set-default multi-user.target
+  when: resilience_disable_desktop | bool and _default_target.stdout != 'multi-user.target'
+
+- name: Stop and disable GDM
+  ansible.builtin.systemd:
+    name: gdm
+    state: stopped
+    enabled: false
+  when: resilience_disable_desktop | bool
+  failed_when: false   # gdm may not be installed
+
+- name: Apply systemd changes now
+  ansible.builtin.meta: flush_handlers
+
+- name: Watchdog armed by systemd
+  ansible.builtin.shell: systemctl show -p RuntimeWatchdogUSec --value; wdctl 2>/dev/null | head -6
+  register: _wdog
+  changed_when: false
+  check_mode: false
+
+- name: Show watchdog state
+  ansible.builtin.debug:
+    msg: "{{ _wdog.stdout_lines }}"

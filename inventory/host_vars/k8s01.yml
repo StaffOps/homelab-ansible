@@ -13,3 +13,7 @@ tailscale_advertise_routes: [192.168.68.104/32, 192.168.68.240/29]
 # ---- gpu ----
 # NVIDIA GeForce GT 740 (Kepler, 4 GiB, driver 470): container toolkit + containerd runtime "nvidia"
 gpu_enabled: true
+
+# ---- resilience ----
+# iTCO_wdt: "unable to reset NO_REBOOT flag, device disabled by hardware/BIOS" (Gigabyte B75M-D3H F15)
+resilience_watchdog_module: softdog

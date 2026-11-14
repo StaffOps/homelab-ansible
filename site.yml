@@ -10,6 +10,7 @@
     - { role: base, tags: [base, update] }
     - { role: network, tags: [network] }
     - { role: hardening, tags: [hardening] }
+    - { role: resilience, tags: [resilience] }
     - { role: tailscale, tags: [tailscale] }
     - { role: motd, tags: [motd] }
     - { role: kubernetes, tags: [kubernetes], when: "'kube_control_plane' in group_names" }

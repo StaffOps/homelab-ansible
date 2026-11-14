@@ -1,0 +1,26 @@
+---
+# Self-recovery for an unattended box (k8s01 froze/stopped 3x on 2026-11-13/14 with no log trace).
+# Power loss is NOT covered here: set BIOS "AC BACK = Always On" (Gigabyte B75M-D3H, Power Management).
+
+# Hardware watchdog: Intel iTCO timer in the chipset. systemd pets it; if the kernel freezes nobody does,
+# and the chip pulls the board's RESET line (same as the reset button) after the timeout.
+# Ubuntu blacklists watchdog drivers by default; an explicit load still works.
+# softdog is the fallback when the BIOS locks the chip: a kernel timer that reboots if systemd stops
+# petting it. It covers a hung userspace/PID 1, NOT a frozen kernel or hardware (only a real chip does).
+resilience_watchdog_module: iTCO_wdt
+resilience_watchdog_timeout: 30s          # systemd RuntimeWatchdogSec (pets at half this interval)
+resilience_reboot_watchdog: 10min         # max time a clean reboot may hang before the chip resets it
+
+# Kernel lockup detectors -> panic -> reboot after kernel.panic seconds (instead of hanging forever).
+# hung_task_panic deliberately left off: slow disk I/O could trigger false reboots.
+resilience_sysctl:
+  kernel.panic: 10                        # reboot 10 s after a panic
+  kernel.softlockup_panic: 1              # a CPU stuck in kernel code > ~20 s
+  kernel.hardlockup_panic: 1              # a CPU not taking interrupts (NMI watchdog)
+  kernel.nmi_watchdog: 1
+
+# Server, not a desktop: no GDM/X on the old NVIDIA 470 driver.
+resilience_disable_desktop: true
+
+# Flush the journal to disk every 30 s (default 5 min) so the last minutes before a crash survive.
+resilience_journal_sync: 30s
