@@ -23,9 +23,9 @@ kube_control_plane_resources:
   kube-apiserver: {requests: {cpu: 500m, memory: 3Gi}}           # p95 526m, peak ~2.6Gi
   etcd: {requests: {cpu: 100m, memory: 320Mi}}                    # p95 107m, peak 232Mi
   kube-controller-manager: {requests: {cpu: 50m, memory: 256Mi}}  # p95 29m, peak 199Mi
-# CoreDNS (kubeadm addon): one replica is enough on a single node. "kubeadm upgrade" resets the Deployment;
+# CoreDNS (kubeadm addon): 2 replicas so a restart/rollout never leaves pods without DNS. "kubeadm upgrade" resets the Deployment;
 # re-running this role puts it back.
-kube_coredns_replicas: 1
+kube_coredns_replicas: 2
 kube_coredns_resources: {requests: {cpu: 10m, memory: 96Mi}, limits: {memory: 192Mi}}  # p95 3m, peak 79Mi
 kube_sysctl:
   net.ipv4.ip_forward: 1

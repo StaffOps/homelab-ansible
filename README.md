@@ -104,7 +104,7 @@ medidos em 2 h de uso real. O role grava os patches em `/etc/kubernetes/patches/
 cujo patch mudou.
 
 - Sem limit de memória no control plane, de propósito: um OOM ali derruba o cluster inteiro.
-- CoreDNS roda com 1 réplica (ajustado com `kubectl patch`). Um `kubeadm upgrade` desfaz isso; rodar o role de
+- CoreDNS roda com 2 réplicas (um restart não derruba o DNS dos pods) e requests enxutos, ajustados com `kubectl patch`. Um `kubeadm upgrade` desfaz isso; rodar o role de
   novo restaura.
 
 **Quanto tempo o API fica fora** ao aplicar mudanças:
