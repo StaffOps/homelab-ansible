@@ -13,6 +13,8 @@ kube_api_client_host: "{{ ansible_host }}"
 kube_encryption_backup: "~/.config/homelab/{{ inventory_hostname }}-encryption-config.yaml"
 # kube-proxy metrics (plain HTTP): reachable only from pods, UFW blocks the LAN
 kube_proxy_metrics_bind: "0.0.0.0:10249"
+# Pods per node (kubelet default 110; single node homelab). Next limit is CPU/memory requests, not this.
+kube_max_pods: 200
 kube_audit_log_maxage: 7             # days
 kube_audit_log_maxbackup: 5          # files
 kube_audit_log_maxsize: 100          # MB per file
@@ -21,7 +23,7 @@ kube_audit_log_maxsize: 100          # MB per file
 # the apiserver/etcd on purpose: an OOM kill there takes the whole cluster down. Re-measure after a few days.
 kube_control_plane_resources:
   kube-apiserver: {requests: {cpu: 500m, memory: 3Gi}}           # p95 526m, peak ~2.6Gi
-  etcd: {requests: {cpu: 100m, memory: 320Mi}}                    # p95 107m, peak 232Mi
+  etcd: {requests: {cpu: 500m, memory: 320Mi}}                    # usage p95 107m, peak 150m; request = CFS weight under contention (fsync/gRPC p99 spikes during bursts)
   kube-controller-manager: {requests: {cpu: 50m, memory: 256Mi}}  # p95 29m, peak 199Mi
 # CoreDNS (kubeadm addon): 2 replicas so a restart/rollout never leaves pods without DNS. "kubeadm upgrade" resets the Deployment;
 # re-running this role puts it back.

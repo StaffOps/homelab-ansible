@@ -332,9 +332,17 @@
   register: _kubelet_tls
   notify: Restart kubelet
 
+- name: Kubelet - maxPods
+  ansible.builtin.lineinfile:
+    path: /var/lib/kubelet/config.yaml
+    regexp: '^maxPods:'
+    line: 'maxPods: {{ kube_max_pods }}'
+  register: _kubelet_maxpods
+  notify: Restart kubelet
+
 - name: Store kubelet config in the cluster (kubelet-config ConfigMap)
   ansible.builtin.command: kubeadm init phase upload-config kubelet --config /etc/kubernetes/kubeadm-config.yaml
-  when: _kubelet_tls is changed
+  when: _kubelet_tls is changed or _kubelet_maxpods is changed
 
 - name: Restart kubelet now
   ansible.builtin.meta: flush_handlers

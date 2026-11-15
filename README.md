@@ -106,6 +106,8 @@ cujo patch mudou.
 - Sem limit de memória no control plane, de propósito: um OOM ali derruba o cluster inteiro.
 - CoreDNS roda com 2 réplicas (um restart não derruba o DNS dos pods) e requests enxutos, ajustados com `kubectl patch`. Um `kubeadm upgrade` desfaz isso; rodar o role de
   novo restaura.
+- Até 200 pods no nó (`kube_max_pods`; o padrão do kubelet é 110). Mudar só reinicia o kubelet, sem derrubar
+  pods. O próximo limite são os requests de CPU/memória, não o número de pods.
 
 **Quanto tempo o API fica fora** ao aplicar mudanças:
 
