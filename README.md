@@ -1,4 +1,4 @@
-# ansible-base: homelab `k8s01`
+# homelab-ansible: homelab `k8s01`
 
 Ansible que provisiona o servidor do homelab, do sistema operacional até o Kubernetes.
 
