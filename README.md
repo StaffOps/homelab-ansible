@@ -48,7 +48,7 @@ services do cluster; da LAN continuam fechados.
 
 | componente | endpoint | observação |
 |---|---|---|
-| etcd | `http://192.168.68.104:2381/metrics` | `listen-metrics-urls` (127.0.0.1 + IP do nó) |
+| etcd | `http://192.168.68.104:2381/metrics` | `listen-metrics-urls` (127.0.0.1 + IP do nó); `--metrics=extensive` (histogramas gRPC por método, dashboards do mixin do etcd) |
 | kube-proxy | `http://:10249/metrics` | `metricsBindAddress` (`kube_proxy_metrics_bind`) |
 | kube-scheduler | `https://:10259/metrics` | `bind-address: 0.0.0.0`; exige token (403 sem) |
 | kube-controller-manager | `https://:10257/metrics` | idem |
@@ -57,7 +57,7 @@ services do cluster; da LAN continuam fechados.
 
 Mudar o `kubeadm-config` regenera os quatro manifestos do control plane (backup em
 `/etc/kubernetes/manifests-bak-<timestamp>`) e roda `kubeadm init phase upload-config`: o API fica 2-3 min
-fora (o etcd volta por último e o apiserver reinicia até conectar). O kube-proxy é ajustado no ConfigMap e
+fora mesmo quando só o etcd muda (o apiserver reinicia até o etcd voltar; pods que falam com o API, como `keda-operator` e `kube-state-metrics`, podem entrar em CrashLoopBackOff e voltam com `kubectl delete pod`). O kube-proxy é ajustado no ConfigMap e
 reiniciado pelo role.
 
 ## GPU (role gpu)
