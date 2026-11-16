@@ -431,6 +431,24 @@
     wait --for=condition=Ready node --all --timeout=300s
   changed_when: false
 
+# Tailscale reserves fwmark bits 0xff0000 (0x80000 = "bypass the tailnet": ip rule 5210 -> table main).
+# Calico's default mask 0xffff0000 marks every Pod packet (-i cali+) with 0x80000, so Pod traffic to 100.x
+# left by the LAN instead of tailscale0 (Argo CD could not reach the VPS k3s). Felix restarts and rewrites
+# its rules when this changes (a few seconds of Pod network churn).
+- name: Calico iptables mark mask clear of Tailscale's bits
+  ansible.builtin.shell: |
+    set -euo pipefail
+    K="kubectl --kubeconfig /etc/kubernetes/admin.conf"
+    current=$($K get felixconfiguration default -o jsonpath='{.spec.iptablesMarkMask}')
+    if [ "$current" = "{{ calico_iptables_mark_mask }}" ]; then echo unchanged; exit 0; fi
+    $K patch felixconfiguration default --type merge \
+      -p '{"spec":{"iptablesMarkMask":{{ calico_iptables_mark_mask }}}}' >/dev/null
+    echo changed
+  args:
+    executable: /bin/bash
+  register: _felix_mask
+  changed_when: _felix_mask.stdout == 'changed'
+
 # Renewals need an approver (e.g. kubelet-csr-approver via GitOps); Ansible approves only this node's pending ones.
 - name: Approve pending kubelet-serving CSRs for this node
   ansible.builtin.shell: |

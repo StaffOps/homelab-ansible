@@ -43,3 +43,4 @@ calico_map_api_version: v1            # MutatingAdmissionPolicy API: v1 for K8s 
 calico_felix_metrics_port: 9091
 calico_typha_metrics_port: 9093
 calico_encapsulation: VXLAN          # single node: no inter-node traffic; VXLAN avoids BGP
+calico_iptables_mark_mask: 4278190080  # 0xff000000 (integer: the CRD rejects a string); clear of Tailscale (0xff0000), kube-proxy (0xc000) and Istio (0xfff)
