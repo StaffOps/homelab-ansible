@@ -1,0 +1,10 @@
+site_name: homelab-ansible
+site_description: Ansible Base to Templates Linux
+repo_url: https://github.com/StaffOps/homelab-ansible
+edit_uri: edit/main/docs/
+
+nav:
+  - Home: index.md
+
+plugins:
+  - techdocs-core

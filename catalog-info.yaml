@@ -8,6 +8,8 @@ metadata:
   description: "Ansible Base to Templates Linux"
   annotations:
     github.com/project-slug: StaffOps/homelab-ansible
+    backstage.io/techdocs-ref: dir:.
+  tags: [ansible, kubernetes, tailscale, linux-hardening, shell]
   links:
     - url: https://github.com/StaffOps/homelab-ansible
       title: Repository
@@ -24,7 +26,8 @@ metadata:
   description: "Ansible Base to Templates Linux"
   annotations:
     github.com/project-slug: StaffOps/homelab-ansible
-  tags: [jinja]
+    backstage.io/techdocs-ref: dir:.
+  tags: [ansible, kubernetes]
 spec:
   type: infrastructure
   lifecycle: production
