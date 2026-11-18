@@ -1,0 +1,32 @@
+# Backstage catalog: Domain (GitHub org) -> System (this repo) -> Component(s).
+# Names aligned with Dependency-Track (StaffOps/homelab-gitops helm-charts/argo-events/image-scan/catalog.yaml).
+apiVersion: backstage.io/v1alpha1
+kind: System
+metadata:
+  name: homelab-ansible
+  title: homelab-ansible
+  description: "Ansible Base to Templates Linux"
+  annotations:
+    github.com/project-slug: StaffOps/homelab-ansible
+  links:
+    - url: https://github.com/StaffOps/homelab-ansible
+      title: Repository
+      icon: github
+spec:
+  owner: group:staffops
+  domain: staffops
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: homelab-ansible
+  title: homelab-ansible
+  description: "Ansible Base to Templates Linux"
+  annotations:
+    github.com/project-slug: StaffOps/homelab-ansible
+  tags: [jinja]
+spec:
+  type: infrastructure
+  lifecycle: production
+  owner: group:staffops
+  system: homelab-ansible
