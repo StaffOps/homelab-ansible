@@ -84,3 +84,5 @@ cgroupDriver: systemd
 serverTLSBootstrap: true
 # Pods per node (kubelet default 110). Calico IPAM uses /26 blocks from the /16 pool, so IPs are not the limit.
 maxPods: {{ kube_max_pods }}
+# Upstream DNS for CoreDNS and dnsPolicy=Default pods, without Tailscale MagicDNS (kube_pod_dns_upstreams)
+resolvConf: {{ kube_pod_resolv_conf }}

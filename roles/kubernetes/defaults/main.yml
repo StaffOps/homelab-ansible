@@ -25,6 +25,11 @@ kube_control_plane_resources:
   kube-apiserver: {requests: {cpu: 500m, memory: 3Gi}}           # p95 526m, peak ~2.6Gi
   etcd: {requests: {cpu: 500m, memory: 320Mi}}                    # usage p95 107m, peak 150m; request = CFS weight under contention (fsync/gRPC p99 spikes during bursts)
   kube-controller-manager: {requests: {cpu: 50m, memory: 256Mi}}  # p95 29m, peak 199Mi
+# DNS upstreams for CoreDNS and dnsPolicy=Default pods (kubelet resolvConf). Not systemd-resolved's list: that
+# includes Tailscale MagicDNS (100.100.100.100, fd7a:115c:a1e0::53); the IPv6 one is unreachable from the
+# IPv4-only pod network (CoreDNSForwardHealthcheckFailureCount) and nothing in the cluster resolves *.ts.net.
+kube_pod_dns_upstreams: [192.168.1.254, 4.2.2.2]
+kube_pod_resolv_conf: /etc/kubernetes/resolv.conf
 # CoreDNS (kubeadm addon): 2 replicas so a restart/rollout never leaves pods without DNS. "kubeadm upgrade" resets the Deployment;
 # re-running this role puts it back.
 kube_coredns_replicas: 2

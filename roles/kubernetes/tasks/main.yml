@@ -192,6 +192,17 @@
   changed_when: false
   check_mode: false
 
+- name: Pod resolv.conf (kubelet resolvConf, no Tailscale MagicDNS)
+  ansible.builtin.copy:
+    dest: "{{ kube_pod_resolv_conf }}"
+    mode: "0644"
+    content: |
+      # Managed by Ansible (kube_pod_dns_upstreams): upstreams for CoreDNS and dnsPolicy=Default pods
+      {% for ns in kube_pod_dns_upstreams %}
+      nameserver {{ ns }}
+      {% endfor %}
+  register: _pod_resolv
+
 - name: kubeadm config
   ansible.builtin.template:
     src: kubeadm-config.yaml.j2
@@ -340,12 +351,25 @@
   register: _kubelet_maxpods
   notify: Restart kubelet
 
+- name: Kubelet - resolvConf
+  ansible.builtin.lineinfile:
+    path: /var/lib/kubelet/config.yaml
+    regexp: '^resolvConf:'
+    line: 'resolvConf: {{ kube_pod_resolv_conf }}'
+  register: _kubelet_resolv
+  notify: Restart kubelet
+
 - name: Store kubelet config in the cluster (kubelet-config ConfigMap)
   ansible.builtin.command: kubeadm init phase upload-config kubelet --config /etc/kubernetes/kubeadm-config.yaml
-  when: _kubelet_tls is changed or _kubelet_maxpods is changed
+  when: _kubelet_tls is changed or _kubelet_maxpods is changed or _kubelet_resolv is changed
 
 - name: Restart kubelet now
   ansible.builtin.meta: flush_handlers
+
+# CoreDNS copies the kubelet's resolvConf into its pods at creation: restart them to pick up new upstreams
+- name: CoreDNS - restart for new upstreams
+  ansible.builtin.command: kubectl --kubeconfig /etc/kubernetes/admin.conf -n kube-system rollout restart deployment coredns
+  when: (_pod_resolv is changed or _kubelet_resolv is changed) and _kubeadm_init is not changed
 
 - name: Remove control-plane taint (single node)
   ansible.builtin.command: >-
